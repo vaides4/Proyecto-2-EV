@@ -18,11 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "string.h"
-#include "stdio.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "string.h"
+#include "stdio.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -66,12 +66,16 @@ static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN 0 */
 uint8_t menu[]= "\n 1. Controlar dispositivo  2. Obtener medicion de Sensor \r\n";
 uint8_t menuChoice[2];
-uint8_t mensajeError [] = "Valor ingresado incorrecto \r\n";
-uint8_t subMenu1 [] = "Ingresar led a encender y por cuanto tiempo en ms. Ej. 1,500 \r\n";
+uint8_t mensajeError [] = "\n Valor ingresado incorrecto \r\n";
+uint8_t subMenu1 [] = "\n Ingresar led a encender y por cuanto tiempo en ms. Ej. 1,500 \r\n";
 uint8_t subMenuChoice [5];
 uint8_t bufferI2C [1];
 uint8_t recieveI2C [4];
 uint8_t deviceAddress = 0x55;
+char bufferUart[10];
+volatile uint8_t ledNum = 0;  // Variable para el número del LED
+volatile uint16_t timeOn = 0;
+uint8_t rx_char [10];
 /* USER CODE END 0 */
 
 /**
@@ -107,7 +111,7 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  void UART_ReadStringUntil(uint8_t *bufferUart, char delimiter);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -123,12 +127,18 @@ int main(void)
 	  //Condiciones sobre eleccion de menu
 	  if (HAL_UART_Receive(&huart2, menuChoice, 1, HAL_MAX_DELAY) == HAL_OK){
 		  //si menuChoice es 1
-		  if(menuChoice[0] == '1'){
+		  if(menuChoice[0] == '1') {
 			  HAL_UART_Transmit(&huart2, subMenu1, sizeof(subMenu1), 100);
-			  if (HAL_UART_Receive(&huart2, subMenuChoice, sizeof(subMenuChoice), HAL_MAX_DELAY) == HAL_OK){
-				  bandera = 0;
-			  }
+
+			  // Leer la entrada del usuario hasta el delimitador '$'
+			  UART_ReadStringUntil((uint8_t *)bufferUart, '$');
+
+			  // Asumiendo que el formato es: "ledNum,timeOn$" (por ejemplo "1,500$")
+			  sscanf(bufferUart, "%hhu,%hu", &ledNum, &timeOn);
+
+			  bandera = 0;
 		  }
+
 		  //si menuChoice es 2
 		  else if(menuChoice[0] == '2'){
 			  bandera = 0;
@@ -136,7 +146,7 @@ int main(void)
 			  HAL_I2C_Master_Transmit(&hi2c1, (deviceAddress << 1)|0x00, bufferI2C, 1, HAL_MAX_DELAY);
 			  HAL_Delay(1000);
 			  if(HAL_I2C_Master_Receive(&hi2c1, (deviceAddress << 1) | 0x01, recieveI2C, sizeof(recieveI2C), HAL_MAX_DELAY) == HAL_OK){
-				  char buff[20]; // Asegúrate de que el tamaño del buffer sea suficiente
+				  char buff[20]; //creacion de buff
 			      sprintf(buff, "Valor recibido: %d\r\n", recieveI2C[0]); // Convertir a string
 			      HAL_UART_Transmit(&huart2, (uint8_t *)buff, strlen(buff), HAL_MAX_DELAY);
 			  }
@@ -144,6 +154,7 @@ int main(void)
 		  }
 		  // si Menu Choice es cualquier otro valor
 		  else{
+			  //muestra mensaje de error
 			  HAL_UART_Transmit(&huart2, mensajeError, sizeof(mensajeError), 100);
 		  }
 
@@ -326,6 +337,32 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+// Funcion para leer hasta encontrar el signo '$'
+void UART_ReadStringUntil(uint8_t *buffer, char delimiter) {
+    uint16_t i = 0;
+
+    // Bucle para recibir datos hasta encontrar el delimitador
+    while (1) {
+        // Leer un carácter desde UART2
+        HAL_UART_Receive(&huart2, &rx_char, 1, HAL_MAX_DELAY);  // Bloqueante hasta recibir
+
+        // Almacenar el carácter en el buffer
+        buffer[i++] = rx_char;
+
+        // Verificar si es el delimitador
+        if (rx_char == delimiter) {
+            break;  // Salir del bucle si encontramos el delimitador
+        }
+
+        // Evitar overflow en el buffer
+        if (i >= sizeof(bufferUart)) {
+            break;  // Si el buffer se llena, salir del bucle
+        }
+    }
+
+    // Terminar la cadena con un carácter nulo
+    buffer[i] = '\0';
+}
 
 /* USER CODE END 4 */
 
