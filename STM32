@@ -21,8 +21,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "string.h"
-#include "stdio.h"
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -72,10 +75,22 @@ uint8_t subMenuChoice [5];
 uint8_t bufferI2C [1];
 uint8_t recieveI2C [4];
 uint8_t deviceAddress = 0x55;
-char bufferUart[10];
+uint8_t bufferUart[10];
+char rx_char;
+
+uint8_t cadena[10];
+char *coma;
+char *tiempoStr;
+char *ledStr;
+uint8_t led = 0;
+uint8_t tiempo = 0;
+uint8_t index1 = 0;
+char c;
+
+
 volatile uint8_t ledNum = 0;  // Variable para el número del LED
 volatile uint16_t timeOn = 0;
-uint8_t rx_char [10];
+uint16_t i = 0;
 /* USER CODE END 0 */
 
 /**
@@ -111,7 +126,7 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  void UART_ReadStringUntil(uint8_t *bufferUart, char delimiter);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -125,18 +140,58 @@ int main(void)
 	  }
 
 	  //Condiciones sobre eleccion de menu
-	  if (HAL_UART_Receive(&huart2, menuChoice, 1, HAL_MAX_DELAY) == HAL_OK){
+	  if (HAL_UART_Receive(&huart2, menuChoice, 1, 10) == HAL_OK){
 		  //si menuChoice es 1
 		  if(menuChoice[0] == '1') {
 			  HAL_UART_Transmit(&huart2, subMenu1, sizeof(subMenu1), 100);
 
-			  // Leer la entrada del usuario hasta el delimitador '$'
-			  UART_ReadStringUntil((uint8_t *)bufferUart, '$');
+			  while(index1 < sizeof(bufferUart)-1){
+				  if(HAL_UART_Receive(&huart2,(uint8_t*)&c, 1, HAL_MAX_DELAY) == HAL_OK){
+					  if(c == '\n'){
+						  break;
+					  }
+					  bufferUart[index1++] = c;
+				  }
+			  }
+			  if(bufferUart[1] == ','){
+				  bufferUart[index1] = '\0';
+
+				  coma = strchr(bufferUart, ',');
+
+				  // Asumiendo que el formato es: "ledNum,timeOn$" (por ejemplo "1,500$")
+				  sscanf(bufferUart, "%hhu,%hu", &ledNum, &timeOn);
+				  //enviar datos en SPI
+				  HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, 0);
+				  HAL_SPI_Transmit(&hspi1, bufferUart, sizeof(bufferUart), HAL_MAX_DELAY);
+				  HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, 1);
+				  HAL_Delay(50);
+
+				  //limpiar bufferUart
+		          memset(bufferUart, 0, sizeof(bufferUart));
+		          index1 = 0;
+				  bandera = 0;
+			  }
+			  else{
+				  HAL_UART_Transmit(&huart2, mensajeError, sizeof(mensajeError), 100);
+				  bufferUart[index1] = '\0';
+
+				  coma = strchr(bufferUart, ',');
+
+				  // Asumiendo que el formato es: "ledNum,timeOn$" (por ejemplo "1,500$")
+				  sscanf(bufferUart, "%hhu,%hu", &ledNum, &timeOn);
+		          memset(bufferUart, 0, sizeof(bufferUart));  // Limpia el buffer
+		          index1 = 0;
+				  bandera = 0;
+			  }
 
 			  // Asumiendo que el formato es: "ledNum,timeOn$" (por ejemplo "1,500$")
 			  sscanf(bufferUart, "%hhu,%hu", &ledNum, &timeOn);
 
+
+	          memset(bufferUart, 0, sizeof(bufferUart));  // Limpia el buffer
+	          index1 = 0;
 			  bandera = 0;
+
 		  }
 
 		  //si menuChoice es 2
@@ -270,7 +325,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -325,6 +380,7 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
@@ -332,37 +388,22 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : ESP32_CS_Pin */
+  GPIO_InitStruct.Pin = ESP32_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ESP32_CS_GPIO_Port, &GPIO_InitStruct);
+
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-// Funcion para leer hasta encontrar el signo '$'
-void UART_ReadStringUntil(uint8_t *buffer, char delimiter) {
-    uint16_t i = 0;
 
-    // Bucle para recibir datos hasta encontrar el delimitador
-    while (1) {
-        // Leer un carácter desde UART2
-        HAL_UART_Receive(&huart2, &rx_char, 1, HAL_MAX_DELAY);  // Bloqueante hasta recibir
-
-        // Almacenar el carácter en el buffer
-        buffer[i++] = rx_char;
-
-        // Verificar si es el delimitador
-        if (rx_char == delimiter) {
-            break;  // Salir del bucle si encontramos el delimitador
-        }
-
-        // Evitar overflow en el buffer
-        if (i >= sizeof(bufferUart)) {
-            break;  // Si el buffer se llena, salir del bucle
-        }
-    }
-
-    // Terminar la cadena con un carácter nulo
-    buffer[i] = '\0';
-}
 
 /* USER CODE END 4 */
 
