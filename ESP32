@@ -1,86 +1,88 @@
 #include <Arduino.h>
-#include <Wire.h>
 
-//Pin potenciometro
-#define pot 36
+// Leds
+#define led1 21
+#define led2 19
+#define led3 18
 
-//leds
-#define led1 26
-#define led2 14
-#define led3 13
+//potenciometro
+#define pot1 36
 
-//direccion I2C
-#define I2C_DEV_ADDR 0x55
+//variable menu
+int menu;
 
-//declaracion funciones de callbacks para I2C
-void onRequest();
-void onRecieve(int len);
+//variable para que corra una vez el menu
+int bandera = 0;
 
-//declaracion de funcion para encender leds
+//variables decenas, unidades, decimal
+uint8_t decenas, unidades, decimal;
+
+//variable lectura potenciometro
+float valorPot1;
+
+// funcion prender las leds
 void encenderLed(int l, int t);
 
-//variable para leer potenciometro
-uint16_t valorPot1;
-
-//mapeo potenciometro
-uint8_t mapPot1;
-
-//variable como bandera para enviar datos I2C
-bool enviar = false;
-
-//variable que recibe info I2C
-uint8_t bufferI2C;
+//variables led tiempo
+int led, tiempo;
 
 void setup() {
-  //Comenzar monitor serial
+  //comienza serial
   Serial.begin(115200);
 
-  //Setup I2C
-  Serial.setDebugOutput(true);
-  Wire.onReceive(onRecieve);
-  Wire.onRequest(onRequest);
-  Wire.begin((u_int8_t)I2C_DEV_ADDR);
-
-  //Establecer leds como salidas
+  //establecer salidas
   pinMode(led1, OUTPUT);
   pinMode(led2, OUTPUT);
   pinMode(led3, OUTPUT);
 
-  //Estado inicial leds
+  //estadio inicial leds
   digitalWrite(led1, LOW);
   digitalWrite(led2, LOW);
   digitalWrite(led3, LOW);
 }
 
 void loop() {
+  //lectura ADC
+  valorPot1 = analogReadMilliVolts(pot1)/10.0;
 
-}
-
-//funcion para recibir I2C
-void onRecieve(int len){
-  while(Wire.available()){
-    bufferI2C = Wire.read();
-    if(bufferI2C == '1'){
-      enviar = true;
-    }
-    else{
-      enviar = false;
-    }
+  //Mostrar el menu una vez
+  if(bandera == 0){
+     Serial.printf("1. Lectura ADC 2. Controlar LEDs \n");
+     bandera = 1;
   }
-}
 
-//funcion para enviar I2C
-void onRequest(){
-  if(enviar){
-    //lectura valor analogico
-    valorPot1 = analogRead(pot);
-    //mapeo valor analogico
-    mapPot1 = map(valorPot1, 0, 4095, 0, 255);
+  //Condiciones de menu
+  if(Serial.available() > 0)
+  {
+    //leer valor ingresado de menu por el usuario
+    menu = Serial.parseInt();
 
-    //enviar lectura de potenciometro
-    Wire.write(mapPot1);
+    //condicion si menu = 1
+    if(menu == 1){
+      Serial.printf("Voltataje: %f V \n", valorPot1);
+      bandera = 0;
+    }
 
-    enviar = false;
+    //condicion si menu = 2
+    else if(menu == 2){
+      Serial.printf("Que led desea encender por cuanto tiempo en ms? \n");
+      delay(10000);
+      led = Serial.parseInt();
+      tiempo = Serial.parseInt();
+      if(led == 1 || led == 2 || led == 3){
+        encenderLed(led,tiempo);
+      }
+      if(led > 3 && led < 1){
+        printf("Valor incorrecto \n");
+      }
+      bandera = 0;
+    }
+    
+    //condicion valor incorrecto
+    if(menu > 2 && menu < 1){
+      printf("Valor incorrecto \n");
+      bandera = 0;
+    }
   }
 }
 
