@@ -82,7 +82,6 @@ void loop() {
   //resetear valores de led y tiempo
   led = 0;
   tiempo = 0;
-  String sinComa = "";
   while(slave.available()){
     led = spi_slave_rx_buf[0] - 48;
 
@@ -102,7 +101,6 @@ void loop() {
 
     //cerrar y limpiar SPI
     slave.pop();
-
   }
 }
 
@@ -136,6 +134,7 @@ void onRequest(){
     //enviar lectura de potenciometro
     Wire.write(mapPot1);
 
+    //reiniciar variable
     enviar = false;
   }
 }
