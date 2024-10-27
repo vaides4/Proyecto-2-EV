@@ -1,88 +1,142 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include <ESP32SPISlave.h>
 
-// Leds
-#define led1 21
-#define led2 19
-#define led3 18
+//Pin potenciometro
+#define pot 36
 
-//potenciometro
-#define pot1 36
+//leds
+#define led1 26
+#define led2 14
+#define led3 13
 
-//variable menu
-int menu;
+//direccion I2C
+#define I2C_DEV_ADDR 0x55
 
-//variable para que corra una vez el menu
-int bandera = 0;
+//asignacion de variable para SPI esclavo
+ESP32SPISlave slave;
 
-//variables decenas, unidades, decimal
-uint8_t decenas, unidades, decimal;
+//creacion de variables a utilizar para SPI
+static constexpr uint32_t BUFFER_SIZE {32};
+u_int8_t spi_slave_tx_buf[BUFFER_SIZE];
+u_int8_t spi_slave_rx_buf[BUFFER_SIZE];
+u_int8_t cmd [8];
+u_int8_t x = 0;
 
-//variable lectura potenciometro
-float valorPot1;
+//declaracion funciones de callbacks para I2C
+void onRequest();
+void onRecieve(int len);
 
-// funcion prender las leds
+//declaracion de funcion para encender leds
 void encenderLed(int l, int t);
 
-//variables led tiempo
+//variable led y tiempo
 int led, tiempo;
 
+//variable para leer potenciometro
+uint16_t valorPot1;
+
+//mapeo potenciometro
+uint8_t mapPot1;
+
+//variable como bandera para enviar datos I2C
+bool enviar = false;
+
+//variable que recibe info I2C
+uint8_t bufferI2C;
+
 void setup() {
-  //comienza serial
+  //Comenzar monitor serial
   Serial.begin(115200);
 
-  //establecer salidas
+  //Setup I2C
+  Serial.setDebugOutput(true);
+  Wire.onReceive(onRecieve);
+  Wire.onRequest(onRequest);
+  Wire.begin((u_int8_t)I2C_DEV_ADDR);
+
+  //Setup SPI
+  slave.setDataMode(SPI_MODE0);
+  slave.setQueueSize(1);
+  slave.begin(VSPI);
+
+  //clear buffers
+  memset(spi_slave_tx_buf, 0, BUFFER_SIZE);
+  memset(spi_slave_rx_buf, 0, BUFFER_SIZE);
+
+  //Establecer leds como salidas
   pinMode(led1, OUTPUT);
   pinMode(led2, OUTPUT);
   pinMode(led3, OUTPUT);
 
-  //estadio inicial leds
+  //Estado inicial leds
   digitalWrite(led1, LOW);
   digitalWrite(led2, LOW);
   digitalWrite(led3, LOW);
 }
 
 void loop() {
-  //lectura ADC
-  valorPot1 = analogReadMilliVolts(pot1)/10.0;
+  //bloquear hasta que la señal llegue del maestro
+  slave.wait(spi_slave_rx_buf, spi_slave_tx_buf, BUFFER_SIZE);
 
-  //Mostrar el menu una vez
-  if(bandera == 0){
-     Serial.printf("1. Lectura ADC 2. Controlar LEDs \n");
-     bandera = 1;
+  //resetear valores de led y tiempo
+  led = 0;
+  tiempo = 0;
+  String sinComa = "";
+  while(slave.available()){
+    led = spi_slave_rx_buf[0] - 48;
+
+    //ciclo for que guarda los valores a partir de la posicion 2 del arreglo recibido
+    for (int i = 2; i < 9; i++) {
+      spi_slave_rx_buf[i - 2] = spi_slave_rx_buf[i];
+    }
+   
+    //Se agrega el fin de la cadena... indica el fin del string
+    spi_slave_rx_buf[8] = '\0'; 
+  
+    // Convertir el valor de ASCII a entero
+    tiempo = atoi((char*)spi_slave_rx_buf);
+
+    //utilizar funcion para encender led por dicho tiempo
+    encenderLed(led, tiempo);
+
+    //cerrar y limpiar SPI
+    slave.pop();
+
   }
+}
 
-  //Condiciones de menu
-  if(Serial.available() > 0)
-  {
-    //leer valor ingresado de menu por el usuario
-    menu = Serial.parseInt();
+//funcion para recibir I2C
+void onRecieve(int len){
+  //while para que lea datos siempre que existan
+  while(Wire.available()){
+    //lecura de I2C
+    bufferI2C = Wire.read();
 
-    //condicion si menu = 1
-    if(menu == 1){
-      Serial.printf("Voltataje: %f V \n", valorPot1);
-      bandera = 0;
+    //Se utiliza una bandera/condicion para manipular cuando se mandan mensajes al I2C maestro
+    if(bufferI2C == '1'){
+      enviar = true;
     }
+    else{
+      enviar = false;
+    }
+  }
+}
 
-    //condicion si menu = 2
-    else if(menu == 2){
-      Serial.printf("Que led desea encender por cuanto tiempo en ms? \n");
-      delay(10000);
-      led = Serial.parseInt();
-      tiempo = Serial.parseInt();
-      if(led == 1 || led == 2 || led == 3){
-        encenderLed(led,tiempo);
-      }
-      if(led > 3 && led < 1){
-        printf("Valor incorrecto \n");
-      }
-      bandera = 0;
-    }
-    
-    //condicion valor incorrecto
-    if(menu > 2 && menu < 1){
-      printf("Valor incorrecto \n");
-      bandera = 0;
-    }
+//funcion para enviar I2C
+void onRequest(){
+    //lectura valor analogico
+  valorPot1 = analogRead(pot);
+  
+  //mapeo valor analogico
+  mapPot1 = map(valorPot1, 0, 4095, 0, 255);
+
+  //Condicion que envia valor de potenciometro
+  if(enviar){
+    //enviar lectura de potenciometro
+    Wire.write(mapPot1);
+
+    enviar = false;
   }
 }
 
