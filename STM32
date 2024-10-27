@@ -23,8 +23,6 @@
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -51,8 +49,7 @@ SPI_HandleTypeDef hspi1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-//variables de menu y bandera que se utiliza para que corra una vez
-int bandera;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,6 +64,9 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+//creacion de variables
+int bandera;
 uint8_t menu[]= "\n 1. Controlar dispositivo  2. Obtener medicion de Sensor \r\n";
 uint8_t menuChoice[2];
 uint8_t mensajeError [] = "\n Valor ingresado incorrecto \r\n";
@@ -76,21 +76,12 @@ uint8_t bufferI2C [1];
 uint8_t recieveI2C [4];
 uint8_t deviceAddress = 0x55;
 uint8_t bufferUart[10];
-char rx_char;
 
-uint8_t cadena[10];
 char *coma;
-char *tiempoStr;
-char *ledStr;
-uint8_t led = 0;
-uint8_t tiempo = 0;
 uint8_t index1 = 0;
-char c;
+char enterKey;
+char buff[20];
 
-
-volatile uint8_t ledNum = 0;  // Variable para el número del LED
-volatile uint16_t timeOn = 0;
-uint16_t i = 0;
 /* USER CODE END 0 */
 
 /**
@@ -133,9 +124,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //mostrar el menu una vez
+	  //mostrar el menu una vez utilizando una variable bandera
 	  if(bandera == 0){
+		  //transmitir menu a Compu
 		  HAL_UART_Transmit(&huart2, menu, sizeof(menu), 100);
+		  //Cambiar valor de bandera para que no vuelva a enviar el menu
 		  bandera = 1;
 	  }
 
@@ -143,66 +136,71 @@ int main(void)
 	  if (HAL_UART_Receive(&huart2, menuChoice, 1, 10) == HAL_OK){
 		  //si menuChoice es 1
 		  if(menuChoice[0] == '1') {
+			  //transmitir submenu de la opcion 1
 			  HAL_UART_Transmit(&huart2, subMenu1, sizeof(subMenu1), 100);
 
+			  //Leer datos ingresado hasta el límite de buffer o hasta recibir 'Enter'
 			  while(index1 < sizeof(bufferUart)-1){
-				  if(HAL_UART_Receive(&huart2,(uint8_t*)&c, 1, HAL_MAX_DELAY) == HAL_OK){
-					  if(c == '\n'){
+				  //guardar valor en enterKey hasta que se recibe 'Enter'
+				  if(HAL_UART_Receive(&huart2,(uint8_t*)&enterKey, 1, HAL_MAX_DELAY) == HAL_OK){
+					  //si se recibe 'Enter', se cierra el ciclo de lecura
+					  if(enterKey == '\n'){
 						  break;
 					  }
-					  bufferUart[index1++] = c;
+					  //guardar cada variable recibida en bufferUart
+					  bufferUart[index1++] = enterKey;
 				  }
 			  }
+
+			  /*Condicion para verificar que la segunda posicion sea una coma
+			  para confirmar que se haya ingresado bien el valor */
 			  if(bufferUart[1] == ','){
-				  bufferUart[index1] = '\0';
+				  //Condicion que confirma que el valor de led sea entre 1, 2 y 3
+				  if(bufferUart[0] == '1' || bufferUart[0] == '2' || bufferUart[0] == '3' ){
+					  //terminar la cadena con un carácter nulo para evitar errores en la lectura
+					  bufferUart[index1] = '\0';
 
-				  coma = strchr(bufferUart, ',');
-
-				  // Asumiendo que el formato es: "ledNum,timeOn$" (por ejemplo "1,500$")
-				  sscanf(bufferUart, "%hhu,%hu", &ledNum, &timeOn);
-				  //enviar datos en SPI
-				  HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, 0);
-				  HAL_SPI_Transmit(&hspi1, bufferUart, sizeof(bufferUart), HAL_MAX_DELAY);
-				  HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, 1);
-				  HAL_Delay(50);
+					  //enviar datos en SPI
+					  HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, 0);
+					  HAL_SPI_Transmit(&hspi1, bufferUart, sizeof(bufferUart), HAL_MAX_DELAY);
+					  HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, 1);
+					  HAL_Delay(50);
+				  }
+				  else{
+					  //muestra mensaje de error si no se ingresa valor de led correcto
+					  HAL_UART_Transmit(&huart2, mensajeError, sizeof(mensajeError), 100);
+				  }
+				  //limpiar bufferUart
+		          memset(bufferUart, 0, sizeof(bufferUart));
+		          //reestablecer index1
+		          index1 = 0;
+			  }
+			  else{
+				  //muestra mensaje de error si no hay coma en la segunda posicion
+				  HAL_UART_Transmit(&huart2, mensajeError, sizeof(mensajeError), 100);
 
 				  //limpiar bufferUart
 		          memset(bufferUart, 0, sizeof(bufferUart));
+		          //reestablecer index1
 		          index1 = 0;
-				  bandera = 0;
 			  }
-			  else{
-				  HAL_UART_Transmit(&huart2, mensajeError, sizeof(mensajeError), 100);
-				  bufferUart[index1] = '\0';
-
-				  coma = strchr(bufferUart, ',');
-
-				  // Asumiendo que el formato es: "ledNum,timeOn$" (por ejemplo "1,500$")
-				  sscanf(bufferUart, "%hhu,%hu", &ledNum, &timeOn);
-		          memset(bufferUart, 0, sizeof(bufferUart));  // Limpia el buffer
-		          index1 = 0;
-				  bandera = 0;
-			  }
-
-			  // Asumiendo que el formato es: "ledNum,timeOn$" (por ejemplo "1,500$")
-			  sscanf(bufferUart, "%hhu,%hu", &ledNum, &timeOn);
-
-
-	          memset(bufferUart, 0, sizeof(bufferUart));  // Limpia el buffer
-	          index1 = 0;
-			  bandera = 0;
 
 		  }
 
 		  //si menuChoice es 2
 		  else if(menuChoice[0] == '2'){
-			  bandera = 0;
+			  //guarda valor que se envia a ESP32 para indiciar lectura de potenciometro
 			  bufferI2C[0] = '1';
+
+			  //transmite valor en I2C... dos veces para asegurar que se actualice el valor del pot
+			  HAL_I2C_Master_Transmit(&hi2c1, (deviceAddress << 1)|0x00, bufferI2C, 1, HAL_MAX_DELAY);
+			  HAL_Delay(100);
 			  HAL_I2C_Master_Transmit(&hi2c1, (deviceAddress << 1)|0x00, bufferI2C, 1, HAL_MAX_DELAY);
 			  HAL_Delay(1000);
+
+			  //recibir datos del ESP32 por I2C y mostrar por UART
 			  if(HAL_I2C_Master_Receive(&hi2c1, (deviceAddress << 1) | 0x01, recieveI2C, sizeof(recieveI2C), HAL_MAX_DELAY) == HAL_OK){
-				  char buff[20]; //creacion de buff
-			      sprintf(buff, "Valor recibido: %d\r\n", recieveI2C[0]); // Convertir a string
+			      sprintf(buff, "Valor recibido: %d\r\n", recieveI2C[0]);
 			      HAL_UART_Transmit(&huart2, (uint8_t *)buff, strlen(buff), HAL_MAX_DELAY);
 			  }
 			  HAL_Delay(500);
@@ -212,6 +210,8 @@ int main(void)
 			  //muestra mensaje de error
 			  HAL_UART_Transmit(&huart2, mensajeError, sizeof(mensajeError), 100);
 		  }
+	      //Reiniciar bandera para permitir que el menú se muestre nuevamente
+		  bandera = 0;
 
 	  }
     /* USER CODE END WHILE */
